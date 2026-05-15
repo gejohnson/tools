@@ -64,22 +64,6 @@
     </ul>
   </div>
 
-
-
-  <div class="card">
-    <h2>Local-first workflow (no hosted backend)</h2>
-    <ol>
-      <li>Run <code>yt-dlp + ffmpeg</code> on your laptop to produce MP3 files.</li>
-      <li>Upload MP3 files somewhere public (GitHub Releases, S3/R2, etc.).</li>
-      <li>Paste episode JSON with public <code>audio_url</code> links below.</li>
-      <li>Build/download <code>feed.xml</code>, commit it, and subscribe on your phone.</li>
-    </ol>
-<pre>yt-dlp -f 'bestaudio' --extract-audio --audio-format mp3 --audio-quality 0 \
-  -o 'audio/%(upload_date)s-%(id)s-%(title).120B.%(ext)s' \
-  'https://www.youtube.com/watch?v=VIDEO_ID'</pre>
-    <p class="small">Tip: keep filenames stable so RSS enclosure URLs do not change between updates.</p>
-  </div>
-
   <div class="card">
     <h2>1) Feed metadata</h2>
     <label for="title">Podcast title</label>

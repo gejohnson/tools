@@ -1,1 +1,225 @@
-<h1>HELLO CRUEL WORLD</h1>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>YouTube → Podcast RSS Builder</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      margin: 0;
+      padding: 1rem;
+      max-width: 920px;
+      line-height: 1.4;
+    }
+    h1 { margin-top: 0; }
+    .card {
+      border: 1px solid #7774;
+      border-radius: 12px;
+      padding: 1rem;
+      margin: 1rem 0;
+      background: #8881;
+    }
+    label { display:block; margin: .5rem 0 .25rem; font-weight: 600; }
+    input, textarea {
+      width: 100%;
+      box-sizing: border-box;
+      padding: .6rem;
+      border-radius: 8px;
+      border: 1px solid #8888;
+      font: inherit;
+    }
+    textarea { min-height: 7rem; }
+    button {
+      margin-top: .7rem;
+      padding: .55rem .85rem;
+      border: 1px solid #8888;
+      border-radius: 8px;
+      background: #0b72ff;
+      color: white;
+      cursor: pointer;
+    }
+    button.secondary { background: transparent; color: inherit; }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    pre { overflow-x: auto; padding: .8rem; border-radius: 8px; background: #8882; }
+    .row { display: grid; gap: 1rem; grid-template-columns: 1fr 1fr; }
+    @media (max-width: 760px){ .row { grid-template-columns: 1fr; } }
+    .small { font-size: .9rem; opacity: .85; }
+  </style>
+</head>
+<body>
+  <h1>YouTube → MP3 podcast feed builder (frontend prototype)</h1>
+  <p>
+    This is a <strong>single-file static app</strong> designed for GitHub Pages. It builds a valid podcast RSS feed,
+    but it expects a <strong>backend worker</strong> to do the actual YouTube → MP3 conversion.
+  </p>
+
+  <div class="card">
+    <h2>Why a backend is needed</h2>
+    <ul>
+      <li>Browsers cannot reliably fetch and decode YouTube media streams because of CORS, signature/cipher logic, and anti-bot protections.</li>
+      <li><code>ffmpeg.wasm</code> can transcode in-browser, but you still need direct media bytes first (the hard part for YouTube links).</li>
+      <li>A tiny server/worker running <code>yt-dlp + ffmpeg</code> is the practical approach.</li>
+    </ul>
+  </div>
+
+
+
+  <div class="card">
+    <h2>Local-first workflow (no hosted backend)</h2>
+    <ol>
+      <li>Run <code>yt-dlp + ffmpeg</code> on your laptop to produce MP3 files.</li>
+      <li>Upload MP3 files somewhere public (GitHub Releases, S3/R2, etc.).</li>
+      <li>Paste episode JSON with public <code>audio_url</code> links below.</li>
+      <li>Build/download <code>feed.xml</code>, commit it, and subscribe on your phone.</li>
+    </ol>
+<pre>yt-dlp -f 'bestaudio' --extract-audio --audio-format mp3 --audio-quality 0 \
+  -o 'audio/%(upload_date)s-%(id)s-%(title).120B.%(ext)s' \
+  'https://www.youtube.com/watch?v=VIDEO_ID'</pre>
+    <p class="small">Tip: keep filenames stable so RSS enclosure URLs do not change between updates.</p>
+  </div>
+
+  <div class="card">
+    <h2>1) Feed metadata</h2>
+    <label for="title">Podcast title</label>
+    <input id="title" value="YouTube Podcast" />
+
+    <div class="row">
+      <div>
+        <label for="site">Site URL (channel/home page)</label>
+        <input id="site" value="https://www.youtube.com/" />
+      </div>
+      <div>
+        <label for="self">Feed URL (where you'll host this XML)</label>
+        <input id="self" placeholder="https://gejohnson.github.io/tools/feed.xml" />
+      </div>
+    </div>
+
+    <label for="desc">Description</label>
+    <textarea id="desc">Private podcast feed generated from YouTube sources.</textarea>
+  </div>
+
+  <div class="card">
+    <h2>2) Episodes (JSON)</h2>
+    <p class="small">Paste converted episode data. Each item needs a public <code>audio_url</code> (MP3), title, and pub_date.</p>
+    <textarea id="episodes">[
+  {
+    "title": "Episode 1",
+    "audio_url": "https://example.com/audio/ep1.mp3",
+    "pub_date": "2026-05-15T00:00:00Z",
+    "description": "Optional show notes",
+    "guid": "ep1"
+  }
+]</textarea>
+    <button id="build">Build RSS</button>
+    <button id="download" class="secondary">Download feed.xml</button>
+  </div>
+
+  <div class="card">
+    <h2>3) Output RSS</h2>
+    <pre id="output"></pre>
+  </div>
+
+  <div class="card">
+    <h2>Backend worker contract (example)</h2>
+    <p class="small">Your worker can expose a route that accepts a YouTube URL and returns episode JSON.</p>
+<pre>POST /convert
+{ "youtube_url": "https://youtube.com/watch?v=..." }
+
+→
+{
+  "title": "Episode title",
+  "audio_url": "https://your-cdn/episode.mp3",
+  "pub_date": "2026-05-15T12:00:00Z",
+  "description": "...",
+  "guid": "yt:videoId"
+}</pre>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    function escXml(s = "") {
+      return String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/\"/g, "&quot;")
+        .replace(/'/g, "&apos;");
+    }
+
+    function asRfc2822(dateStr) {
+      const d = new Date(dateStr);
+      return Number.isNaN(d.getTime()) ? new Date().toUTCString() : d.toUTCString();
+    }
+
+    function buildRss() {
+      const title = $("title").value.trim() || "YouTube Podcast";
+      const site = $("site").value.trim() || "https://www.youtube.com/";
+      const self = $("self").value.trim();
+      const desc = $("desc").value.trim();
+
+      let episodes;
+      try {
+        episodes = JSON.parse($("episodes").value);
+        if (!Array.isArray(episodes)) throw new Error("Episodes JSON must be an array");
+      } catch (err) {
+        alert(`Invalid JSON: ${err.message}`);
+        return "";
+      }
+
+      const items = episodes.map((ep, i) => {
+        const epTitle = escXml(ep.title || `Episode ${i + 1}`);
+        const audio = escXml(ep.audio_url || "");
+        const guid = escXml(ep.guid || ep.audio_url || `episode-${i + 1}`);
+        const epDesc = escXml(ep.description || "");
+        const pubDate = escXml(asRfc2822(ep.pub_date));
+        const len = Number.isFinite(Number(ep.length_bytes)) ? Number(ep.length_bytes) : 0;
+
+        return `    <item>\n` +
+               `      <title>${epTitle}</title>\n` +
+               `      <description>${epDesc}</description>\n` +
+               `      <guid isPermaLink="false">${guid}</guid>\n` +
+               `      <pubDate>${pubDate}</pubDate>\n` +
+               `      <enclosure url="${audio}" length="${len}" type="audio/mpeg" />\n` +
+               `    </item>`;
+      }).join("\n");
+
+      return `<?xml version="1.0" encoding="UTF-8"?>\n` +
+`<rss version="2.0"\n` +
+`  xmlns:atom="http://www.w3.org/2005/Atom">\n` +
+`  <channel>\n` +
+`    <title>${escXml(title)}</title>\n` +
+`    <link>${escXml(site)}</link>\n` +
+`    <description>${escXml(desc)}</description>\n` +
+(self ? `    <atom:link href="${escXml(self)}" rel="self" type="application/rss+xml" />\n` : "") +
+`    <lastBuildDate>${new Date().toUTCString()}</lastBuildDate>\n` +
+`${items}\n` +
+`  </channel>\n` +
+`</rss>\n`;
+    }
+
+    $("build").addEventListener("click", () => {
+      const rss = buildRss();
+      if (rss) $("output").textContent = rss;
+    });
+
+    $("download").addEventListener("click", () => {
+      const rss = buildRss();
+      if (!rss) return;
+      $("output").textContent = rss;
+      const blob = new Blob([rss], { type: "application/rss+xml;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "feed.xml";
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    // Render initial output.
+    $("output").textContent = buildRss();
+  </script>
+</body>
+</html>
